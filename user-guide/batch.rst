@@ -93,6 +93,22 @@ Queue Limits
 Queues on Tesseract are designed to enable users to use the system flexibly while 
 retaining fair access for all.
 
+The queues on Tesseract are linked to the physical layout of the hardware on the 
+interconnect to help ensure that jobs have access to nodes with the optimal
+layout on the interconnet topology. In practice, this means that jobs are limited
+to specific numbers of nodes and will be rejected unless those numbers of nodes
+are selected using PBS as described below. The node numbers currently supported
+on Tesseract are:
+
+- 16 nodes (384 cores)
+- 32 nodes (768 cores)
+- 64 nodes (1536 cores)
+- 128 nodes (3072 cores)
+- 256 nodes (6144 cores)
+- 512 nodes (12288 cores)
+
+The maximum runtime for jobs on Tesseract is currently 48 hours.
+
 Output from PBS jobs
 --------------------
 
@@ -114,8 +130,9 @@ specify three things:
 -  The number of nodes you require via the
    ``-l select=[Nodes]`` option. Each node has 24
    cores (2x 12-core processors). For example, to select 16 nodes
-   (1536 cores in total) you would use
-   ``-l select=16``. 
+   (384 cores in total) you would use
+   ``-l select=16``. Remember that only certain node counts are permitted
+   (see the Queue Limits section above for more details).
 -  The maximum length of time (i.e. walltime) you want the job to run
    for via the ``-l walltime=[hh:mm:ss]`` option. To ensure the
    minimum wait time for your job, you should specify a walltime as
@@ -173,10 +190,10 @@ A sample MPI launch line using ``mpirun`` looks like:
 
 ::
 
-    mpirun -n 1536 -ppn 24 ./my_mpi_executable.x arg1 arg2
+    mpirun -n 384 -ppn 24 ./my_mpi_executable.x arg1 arg2
 
 This will start the parallel executable ``my_mpi_executable.x`` with
-arguments "arg1" and "arg2". The job will be started using 1536 MPI
+arguments "arg1" and "arg2". The job will be started using 384 MPI
 processes, with 24 MPI processes placed on each compute node 
 (this would use all the physical cores on each node). This would
 require 16 nodes to be requested in the PBS options.
@@ -221,6 +238,56 @@ You can then also use the ``KMP_AFFINITY`` enviroment variable
 to control placement of OpenMP threads. For more information, see:
 
 * `Intel OpenMP Thread Affinity Control <https://software.intel.com/en-us/articles/openmp-thread-affinity-control>`__
+
+Intel MPI: Process Placement
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+By default, MPI processes are placed on nodes in a round-robin format. For example, if you 
+are using 4 nodes, 16 MPI processes in total and have 4 MPI processes per node, you would use the command:
+
+::
+
+  mpirun -n 16 -ppn 4 /path/to/my/exe
+
+the processes would be placed in the following way:
+
+::
+
+   MPI process 0: placed on Node 1
+   MPI process 1: placed on Node 2
+   MPI process 2: placed on Node 3
+   MPI process 3: placed on Node 4
+   MPI process 4: placed on Node 1
+   MPI process 5: placed on Node 2
+   MPI process 6: placed on Node 3
+   MPI process 7: placed on Node 4
+   MPI process 8: placed on Node 1
+   ...
+   MPI process 15: placed on Node 4
+
+The alternative way to place MPI processes would be to fill one node with processes before moving onto
+the next node (this is often known as *SMP placement*). This can be achieved within a PBS job on 
+Tesseract by using the ``-f`` flag to pass the node list file explicity. For example:
+
+::
+
+  mpirun -n 16 -ppn 4 -f $PBS_NODEFILE /path/to/my/exe
+
+The processes would be placed in the following way:
+
+::
+
+   MPI process 0: placed on Node 1
+   MPI process 1: placed on Node 1
+   MPI process 2: placed on Node 1
+   MPI process 3: placed on Node 1
+   MPI process 4: placed on Node 2
+   MPI process 5: placed on Node 2
+   MPI process 6: placed on Node 2
+   MPI process 7: placed on Node 2
+   MPI process 8: placed on Node 3
+   ...
+   MPI process 15: placed on Node 4
 
 Intel MPI: MPI-IO setup
 ^^^^^^^^^^^^^^^^^^^^^^^
@@ -280,6 +347,7 @@ nodes (maximum of 144 physical cores) for 20 minutes would look like:
    # Select 16 full nodes
    #PBS -l select=16
    #PBS -l walltime=00:20:00
+   #PBS -l place=scatter
    
    # Replace [budget code] below with your project code (e.g. t01)
    #PBS -A [budget code]             
@@ -296,10 +364,10 @@ nodes (maximum of 144 physical cores) for 20 minutes would look like:
    export OMP_NUM_THREADS=1
    
    # Launch the parallel job
-   #   Using 1536 MPI processes and 24 MPI processes per node
-   mpirun -n 1536 -ppn 24 ./my_mpi_executable.x arg1 arg2 > my_stdout.txt 2> my_stderr.txt
+   #   Using 384 MPI processes and 24 MPI processes per node
+   mpirun -n 384 -ppn 24 ./my_mpi_executable.x arg1 arg2 > my_stdout.txt 2> my_stderr.txt
 
-This will run your executable "my\_mpi\_executable.x" in parallel on 1536
+This will run your executable "my\_mpi\_executable.x" in parallel on 384
 MPI processes using 16 nodes (24 cores per node, i.e. not using hyper-threading). PBS will
 allocate 16 nodes to your job and mpirun will place 24 MPI processes on each node
 (one per physical core).
@@ -328,6 +396,7 @@ placement should leave space for threads.
    #PBS -N Example_MixedMode_Job
    #PBS -l select=16
    #PBS -l walltime=6:0:0
+   #PBS -l place=scatter
    
    # Replace [budget code] below with your project code (e.g. t01)
    #PBS -A [budget code]
@@ -349,7 +418,7 @@ placement should leave space for threads.
    #   Using 32 MPI processes
    #   2 MPI processes per node
    #   12 OpenMP threads per MPI process
-   mpirun -n 16 -ppn 2 ./my_mixed_executable.x arg1 arg2 > my_stdout.txt 2> my_stderr.txt
+   mpirun -n 32 -ppn 2 ./my_mixed_executable.x arg1 arg2 > my_stdout.txt 2> my_stderr.txt
 
 .. _jobarrays:
 
@@ -386,6 +455,7 @@ script like the following:
     #PBS -N ArrayJob
     #PBS -l select=16
     #PBS -l walltime=4:0:0
+    #PBS -l place=scatter
     #PBS -J 1-56
 
     cd ${PBS_O_WORKDIR}
@@ -394,7 +464,7 @@ script like the following:
     module load intel-tools-18
 
     # Run with array index as the first argument to the executable
-    mpirun -n 1536 -ppn 24 ./my_mpi_executable.x $PBS_ARRAY_INDEX
+    mpirun -n 384 -ppn 24 ./my_mpi_executable.x $PBS_ARRAY_INDEX
 
 Starting a job array
 ~~~~~~~~~~~~~~~~~~~~
